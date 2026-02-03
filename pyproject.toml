@@ -26,7 +26,7 @@ Homepage = "https://github.com/cho0o0/circuit-breaker"
 Repository = "https://github.com/cho0o0/circuit-breaker"
 
 [dependency-groups]
-dev = ["pytest>=8.3.4"]
+dev = ["pytest>=8.3.4", "pytest-asyncio>=0.24.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -88,7 +88,10 @@ addopts = ["--strict-markers", "--strict-config", "-ra"]
 markers = [
   "slow: marks tests as slow (deselect with '-m \"not slow\"')",
   "integration: marks tests as integration tests",
+  "asyncio: marks tests as async tests",
 ]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 source = ["src"]
