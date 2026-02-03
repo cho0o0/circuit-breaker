@@ -2,7 +2,7 @@ import random
 import time
 from collections.abc import Callable
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, Awaitable, TypeVar
 
 
 class CircuitBreakerState(Enum):
@@ -47,6 +47,27 @@ class CircuitBreaker:
 
     try:
       result = func(*args, **kwargs)
+      self._on_success()
+      return result
+    except Exception as e:
+      self._on_failure()
+      raise e
+
+  async def async_call(
+    self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any
+  ) -> T:
+    """Execute async function with circuit breaker protection"""
+    if self.state == CircuitBreakerState.OPEN:
+      if self._should_attempt_reset():
+        self.state = CircuitBreakerState.HALF_OPEN
+      else:
+        current_timeout_minutes = self._get_current_recovery_timeout_minutes()
+        raise Exception(
+          f"Circuit breaker is OPEN. Service unavailable. Next retry in {current_timeout_minutes} minutes."
+        )
+
+    try:
+      result = await func(*args, **kwargs)
       self._on_success()
       return result
     except Exception as e:

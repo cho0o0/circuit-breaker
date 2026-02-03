@@ -1,3 +1,4 @@
+import asyncio
 import time
 from unittest.mock import MagicMock, patch
 
@@ -569,3 +570,223 @@ class TestCircuitBreaker:
     assert config["fixed_interval_retries"] == 4
     assert config["max_exponential_retries"] == 6
     assert config["jitter_enabled"] is False
+
+
+class TestAsyncCircuitBreaker:
+  """Tests for async_call functionality"""
+
+  @pytest.mark.asyncio
+  async def test_async_successful_call(self):
+    """Test successful async function calls work normally"""
+    cb = CircuitBreaker(failure_threshold=2)
+
+    async def async_success_func():
+      return "async success"
+
+    result = await cb.async_call(async_success_func)
+    assert result == "async success"
+    assert cb.state == CircuitBreakerState.CLOSED
+    assert cb.failure_count == 0
+
+  @pytest.mark.asyncio
+  async def test_async_successful_call_with_arguments(self):
+    """Test successful async function calls with arguments and kwargs"""
+    cb = CircuitBreaker()
+
+    async def async_func_with_args(a, b, c=None):
+      return f"{a}-{b}-{c}"
+
+    result = await cb.async_call(async_func_with_args, "hello", "world", c="test")
+    assert result == "hello-world-test"
+    assert cb.state == CircuitBreakerState.CLOSED
+
+  @pytest.mark.asyncio
+  async def test_async_circuit_opens_after_threshold_failures(self):
+    """Test circuit opens after reaching failure threshold with async calls"""
+    cb = CircuitBreaker(failure_threshold=2)
+
+    async def async_failing_func():
+      raise ValueError("Async test failure")
+
+    # First failure
+    with pytest.raises(ValueError):
+      await cb.async_call(async_failing_func)
+    assert cb.state == CircuitBreakerState.CLOSED
+    assert cb.failure_count == 1
+
+    # Second failure - should open circuit
+    with pytest.raises(ValueError):
+      await cb.async_call(async_failing_func)
+    assert cb.state == CircuitBreakerState.OPEN
+    assert cb.failure_count == 2
+    assert cb.consecutive_circuit_breaks == 1
+
+  @pytest.mark.asyncio
+  async def test_async_circuit_breaker_blocks_calls_when_open(self):
+    """Test circuit breaker blocks async calls when in OPEN state"""
+    cb = CircuitBreaker(failure_threshold=1, base_interval_minutes=1)
+
+    async def async_failing_func():
+      raise ValueError("Async test failure")
+
+    # Cause circuit to open
+    with pytest.raises(ValueError):
+      await cb.async_call(async_failing_func)
+    assert cb.state == CircuitBreakerState.OPEN
+
+    # Subsequent calls should be blocked
+    with pytest.raises(Exception) as exc_info:
+      await cb.async_call(async_failing_func)
+    assert "Circuit breaker is OPEN" in str(exc_info.value)
+
+  @pytest.mark.asyncio
+  async def test_async_circuit_recovery_on_success(self):
+    """Test circuit resets completely on successful async call"""
+    cb = CircuitBreaker(failure_threshold=1)
+
+    async def async_failing_func():
+      raise ValueError("Async test failure")
+
+    async def async_success_func():
+      return "async success"
+
+    # Cause circuit to open
+    with pytest.raises(ValueError):
+      await cb.async_call(async_failing_func)
+    assert cb.state == CircuitBreakerState.OPEN
+    assert cb.consecutive_circuit_breaks == 1
+
+    # Mock successful recovery
+    cb.state = CircuitBreakerState.HALF_OPEN
+    result = await cb.async_call(async_success_func)
+
+    # Should reset completely
+    assert result == "async success"
+    assert cb.state == CircuitBreakerState.CLOSED
+    assert cb.failure_count == 0
+    assert cb.consecutive_circuit_breaks == 0
+
+  @pytest.mark.asyncio
+  async def test_async_function_exceptions_are_preserved(self):
+    """Test that original async function exceptions are preserved"""
+    cb = CircuitBreaker()
+
+    class CustomAsyncError(Exception):
+      pass
+
+    async def custom_async_exception_func():
+      raise CustomAsyncError("Custom async message")
+
+    # Original exception should be preserved
+    with pytest.raises(CustomAsyncError) as exc_info:
+      await cb.async_call(custom_async_exception_func)
+    assert str(exc_info.value) == "Custom async message"
+
+  @pytest.mark.asyncio
+  async def test_async_function_return_values_preserved(self):
+    """Test that async function return values are preserved"""
+    cb = CircuitBreaker()
+
+    async def async_complex_return_func():
+      return {"status": "ok", "data": [1, 2, 3], "count": 42}
+
+    result = await cb.async_call(async_complex_return_func)
+    expected = {"status": "ok", "data": [1, 2, 3], "count": 42}
+    assert result == expected
+
+  @pytest.mark.asyncio
+  async def test_async_half_open_state_behavior(self):
+    """Test HALF_OPEN state allows exactly one async call"""
+    cb = CircuitBreaker(failure_threshold=1)
+
+    async def async_failing_func():
+      raise ValueError("Async test failure")
+
+    # Set to HALF_OPEN state manually
+    cb.state = CircuitBreakerState.HALF_OPEN
+    cb.failure_count = 1
+    cb.consecutive_circuit_breaks = 1
+
+    # First call in HALF_OPEN should be allowed but fail
+    with pytest.raises(ValueError):
+      await cb.async_call(async_failing_func)
+
+    # Should be back to OPEN state
+    assert cb.state == CircuitBreakerState.OPEN
+
+  @pytest.mark.asyncio
+  async def test_mixed_sync_and_async_calls(self):
+    """Test circuit breaker works with mixed sync and async calls"""
+    cb = CircuitBreaker(failure_threshold=3)
+
+    def sync_func():
+      return "sync"
+
+    async def async_func():
+      return "async"
+
+    def sync_failing_func():
+      raise ValueError("Sync failure")
+
+    async def async_failing_func():
+      raise ValueError("Async failure")
+
+    # Mix of sync and async successes
+    assert cb.call(sync_func) == "sync"
+    assert await cb.async_call(async_func) == "async"
+    assert cb.failure_count == 0
+
+    # Mix of sync and async failures
+    with pytest.raises(ValueError):
+      cb.call(sync_failing_func)
+    assert cb.failure_count == 1
+
+    with pytest.raises(ValueError):
+      await cb.async_call(async_failing_func)
+    assert cb.failure_count == 2
+
+    # One more failure should open circuit
+    with pytest.raises(ValueError):
+      cb.call(sync_failing_func)
+    assert cb.state == CircuitBreakerState.OPEN
+
+  @pytest.mark.asyncio
+  async def test_async_with_awaitable_delay(self):
+    """Test async call with actual async operations (like asyncio.sleep)"""
+    cb = CircuitBreaker()
+
+    async def async_with_delay():
+      await asyncio.sleep(0.01)  # 10ms delay
+      return "completed after delay"
+
+    result = await cb.async_call(async_with_delay)
+    assert result == "completed after delay"
+    assert cb.state == CircuitBreakerState.CLOSED
+
+  @pytest.mark.asyncio
+  @patch("time.time")
+  async def test_async_circuit_reset_after_timeout(self, mock_time):
+    """Test async circuit transitions to HALF_OPEN after timeout"""
+    cb = CircuitBreaker(failure_threshold=1, base_interval_minutes=1, jitter_enabled=False)
+
+    async def async_failing_func():
+      raise ValueError("Async test failure")
+
+    # Set initial time
+    mock_time.return_value = 0
+
+    # Cause circuit to open
+    with pytest.raises(ValueError):
+      await cb.async_call(async_failing_func)
+    assert cb.state == CircuitBreakerState.OPEN
+
+    # Before timeout - should still be blocked
+    mock_time.return_value = 30  # 30 seconds (less than 1 minute)
+    with pytest.raises(Exception) as exc_info:
+      await cb.async_call(async_failing_func)
+    assert "Circuit breaker is OPEN" in str(exc_info.value)
+
+    # After timeout - should transition to HALF_OPEN and allow call
+    mock_time.return_value = 70  # 70 seconds (more than 1 minute)
+    with pytest.raises(ValueError):  # Call still fails but is allowed through
+      await cb.async_call(async_failing_func)
