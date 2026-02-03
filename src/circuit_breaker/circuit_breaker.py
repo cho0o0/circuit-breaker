@@ -53,9 +53,7 @@ class CircuitBreaker:
       self._on_failure()
       raise e
 
-  async def async_call(
-    self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any
-  ) -> T:
+  async def async_call(self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
     """Execute async function with circuit breaker protection"""
     if self.state == CircuitBreakerState.OPEN:
       if self._should_attempt_reset():
@@ -152,7 +150,9 @@ class CircuitBreaker:
           self.consecutive_circuit_breaks - self.fixed_interval_retries,
           self.max_exponential_retries,
         )
-        retry_phase = f"exponential-interval (attempt {exponential_attempt}/{self.max_exponential_retries})"
+        retry_phase = (
+          f"exponential-interval (attempt {exponential_attempt}/{self.max_exponential_retries})"
+        )
 
     return {
       "state": self.state.value,

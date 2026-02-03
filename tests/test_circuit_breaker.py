@@ -187,9 +187,7 @@ class TestCircuitBreaker:
 
   def test_fixed_interval_timeout_calculation(self):
     """Test timeout calculation during fixed-interval phase"""
-    cb = CircuitBreaker(
-      base_interval_minutes=10, fixed_interval_retries=3, jitter_enabled=False
-    )
+    cb = CircuitBreaker(base_interval_minutes=10, fixed_interval_retries=3, jitter_enabled=False)
 
     # Simulate circuit breaks in fixed-interval phase
     cb.consecutive_circuit_breaks = 1
