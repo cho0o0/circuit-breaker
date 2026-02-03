@@ -1,8 +1,8 @@
 import random
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from enum import Enum
-from typing import Any, Awaitable, TypeVar
+from typing import Any, TypeVar
 
 
 class CircuitBreakerState(Enum):
